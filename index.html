@@ -17,6 +17,7 @@ const GROUP_SIZE = 2;
 const DEFAULT_PLACE = "골프존파크 창신동묘역점";
 const DEFAULT_ADDR = "서울 종로구 지봉로 19 12층";
 const DEFAULT_LINK = "https://naver.me/xzxmP1oQ";
+const SITE_URL = "https://ddi-pga-tour.netlify.app";
 // 기본 좌표(대략). 모임 만들 때 지도 클릭으로 정확히 맞출 수 있습니다.
 const DEFAULT_LAT = 37.5742, DEFAULT_LNG = 127.0123;
 </script>
@@ -176,7 +177,20 @@ function groupsOf(evId) {
   const g = []; for (let i=0;i<yes.length;i+=GROUP_SIZE) g.push(yes.slice(i,i+GROUP_SIZE)); return g;
 }
 function announcement(ev) {
-  return `안녕하세요, PGA 투어 동호회 입니다.\n\n이번 달 동호회 활동은 ${fmtDate(ev.event_date)}에 진행합니다.\n참석 가능하신 분은 퇴근 시간과 함께 회신 부탁 드립니다.\n(ex. 원종길 17시 30분 퇴근 – 조 편성에 참고하기 위함)\n\n장소 : ${ev.place} (${ev.address})\n${ev.link}\n\n감사합니다.`;
+  return `안녕하세요, PGA 투어 동호회 입니다.
+
+이번 달 동호회 활동은 ${fmtDate(ev.event_date)}에 진행합니다.
+
+참석 여부는 메일 회신 대신 아래 동호회 페이지에서 직접 등록해 주세요.
+▶ ${SITE_URL}
+  1) 이름 선택 → 휴대폰 뒷자리 4자리 입력
+  2) 참석/불참 선택 + 퇴근 시간 입력 → 등록
+  (퇴근 시간은 조 편성에 참고합니다. 조 편성 결과도 같은 페이지에서 확인됩니다.)
+
+장소 : ${ev.place} (${ev.address})
+${ev.link}
+
+감사합니다.`;
 }
 async function copy(text, msg) { try { await navigator.clipboard.writeText(text); toast(msg); } catch { toast("복사에 실패했어요"); } }
 
@@ -249,7 +263,7 @@ async function createMeeting() {
     creating = false; toast("모임을 만들었어요"); await loadAll(); render(); } catch (e) { toast(e.message); }
 }
 function copyAnn() { copy(announcement(events.find((e)=>e.id===selectedId)), "안내 메일 문구를 복사했어요"); }
-function copyRemind() { const ev = events.find((e)=>e.id===selectedId); const p = members.map((m)=>m.name).filter((n)=>!rsvps.some((r)=>r.event_id===ev.id && r.name===n)); copy(`아직 회신 안 주신 분: ${p.join(", ")}\n참석 여부와 퇴근 시간 회신 부탁드립니다!`, "리마인드 문구를 복사했어요"); }
+function copyRemind() { const ev = events.find((e)=>e.id===selectedId); const p = members.map((m)=>m.name).filter((n)=>!rsvps.some((r)=>r.event_id===ev.id && r.name===n)); copy(`아직 참석 등록 안 하신 분: ${p.join(", ")}\n${SITE_URL} 에서 참석 여부와 퇴근 시간 등록 부탁드립니다!`, "리마인드 문구를 복사했어요"); }
 
 function renderHistory() {
   $("s-history").innerHTML = events.length ? `<ul class="hist" style="padding:0;margin:0">${events.map((e)=>{ const c = rsvps.filter((r)=>r.event_id===e.id && r.status==="yes").length;
