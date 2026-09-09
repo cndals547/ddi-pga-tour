@@ -86,6 +86,39 @@ const DEFAULT_LAT = 37.5742, DEFAULT_LNG = 127.0123;
   #toast.on { opacity:1; }
   .sec-h { display:flex; justify-content:space-between; align-items:baseline; margin:24px 0 10px; }
   .sec-h small { opacity:.7; }
+  /* 상품 추첨 */
+  .draw { background:radial-gradient(ellipse at top,#1a5c3a 0%,#0d3320 60%,#051811 100%); color:#fff; border-radius:18px; padding:22px; position:relative; overflow:hidden; }
+  .draw h2 { color:#fbbf24; font-size:24px; text-align:center; margin:0 0 4px; }
+  .draw .sub { color:rgba(167,243,208,.7); text-align:center; }
+  .draw .box { background:rgba(6,78,59,.45); border:1px solid rgba(52,211,153,.3); border-radius:14px; padding:14px; margin-top:14px; }
+  .draw .box h3 { color:#fcd34d; font-size:15px; margin:0 0 10px; display:flex; justify-content:space-between; align-items:center; }
+  .draw .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .draw .chip { padding:6px 10px; border-radius:999px; font-size:13px; background:rgba(6,95,70,.6); border:1px solid rgba(52,211,153,.35); cursor:pointer; user-select:none; }
+  .draw .chip.off { opacity:.35; text-decoration:line-through; }
+  .draw .chip.won { background:#fbbf24; color:#052e16; border-color:#fbbf24; font-weight:700; }
+  .draw input { width:100%; padding:9px 12px 9px 40px; border-radius:8px; background:rgba(6,78,59,.5); border:1px solid rgba(52,211,153,.35); color:#fff; font-size:15px; font-family:inherit; }
+  .draw .prow { position:relative; margin-bottom:8px; } .draw .prow .medal { position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:18px; }
+  .draw .prow .x { position:absolute; right:8px; top:50%; transform:translateY(-50%); color:#fff; opacity:.6; }
+  .draw .gold { width:100%; padding:16px; border:0; border-radius:14px; font-size:19px; font-weight:800; color:#052e16; background:linear-gradient(135deg,#fde68a,#fbbf24,#f59e0b); cursor:pointer; font-family:inherit; margin-top:14px; }
+  .draw .gold:disabled { opacity:.4; cursor:not-allowed; }
+  .draw .ghost { width:100%; padding:12px; border-radius:14px; background:rgba(6,95,70,.6); border:1px solid rgba(52,211,153,.35); color:#d1fae5; font-size:15px; cursor:pointer; font-family:inherit; margin-top:10px; }
+  .draw .stage { margin-top:14px; border-radius:18px; padding:18px; border:2px solid #fbbf24; background:linear-gradient(135deg,rgba(20,83,45,.7),rgba(6,78,59,.5)); box-shadow:0 0 40px rgba(251,191,36,.25); }
+  .draw .stage .top { display:flex; justify-content:space-between; align-items:center; font-size:36px; }
+  .draw .stage .rank { font-size:13px; font-weight:800; letter-spacing:.1em; background:linear-gradient(90deg,#fcd34d,#f59e0b); color:#78350f; padding:5px 14px; border-radius:999px; }
+  .draw .stage .prize { color:rgba(254,243,199,.9); margin:8px 0; }
+  .draw .stage .name { height:90px; display:flex; align-items:center; justify-content:center; border-radius:14px; background:rgba(0,0,0,.4); font-size:30px; font-weight:900; }
+  .draw .stage .name.rev { color:#fcd34d; animation:pop .6s cubic-bezier(.34,1.56,.64,1); }
+  .draw .stage .name.spin { animation:shake .15s infinite; }
+  .draw .bar { display:flex; gap:6px; margin-top:14px; } .draw .bar i { flex:1; height:6px; border-radius:99px; background:rgba(6,95,70,.6); } .draw .bar i.done { background:#fbbf24; } .draw .bar i.cur { background:rgba(251,191,36,.6); }
+  .draw .wcard { display:flex; align-items:center; gap:14px; border-radius:14px; padding:14px 16px; margin-top:10px; color:#052e16; background:linear-gradient(135deg,#fde68a,#fbbf24); animation:pop .6s cubic-bezier(.34,1.56,.64,1) both; }
+  .draw .wcard.s { background:linear-gradient(135deg,#e2e8f0,#94a3b8); } .draw .wcard.b { background:linear-gradient(135deg,#fdba74,#d97706); } .draw .wcard.o { background:linear-gradient(135deg,#6ee7b7,#14b8a6); }
+  .draw .wcard .m { font-size:34px; } .draw .wcard b { font-size:22px; display:block; } .draw .wcard small { font-size:12px; opacity:.75; }
+  .conf { position:absolute; top:25%; width:10px; height:14px; animation:fall linear forwards; pointer-events:none; }
+  @keyframes fall { 0%{transform:translateY(0) rotate(0);opacity:1} 100%{transform:translateY(90vh) rotate(720deg);opacity:0} }
+  @keyframes pop { 0%{transform:scale(.3) rotate(-15deg);opacity:0} 70%{transform:scale(1.1) rotate(5deg);opacity:1} 100%{transform:scale(1);opacity:1} }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
+  .result { background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px 18px; margin-top:18px; }
+  .result ul { list-style:none; margin:8px 0 0; padding:0; } .result li { display:flex; gap:10px; align-items:center; padding:6px 0; border-top:1px solid var(--line); font-size:14px; } .result li:first-child { border-top:0; }
 </style>
 </head>
 <body>
@@ -101,6 +134,7 @@ const DEFAULT_LAT = 37.5742, DEFAULT_LNG = 127.0123;
   <section id="s-event"></section>
   <section id="s-history"></section>
   <section id="s-members"></section>
+  <section id="s-draw"></section>
 </main>
 <div id="toast"></div>
 
@@ -112,6 +146,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<"
 let me = JSON.parse(localStorage.getItem("pga:me") || "null"); // {name, pin, is_admin}
 let members = [], events = [], rsvps = [], selectedId = null, tab = "event", creating = false;
 let naverMap = null, naverMarker = null;
+let draws = []; // {event_id, results:[{name,prize}]}
+let dr = { phase:"setup", prizes:["1등 상품","2등 상품","3등 상품"], excluded:[], extra:[], round:0, winners:[], spin:"" };
 
 const toast = (m) => { const t = $("toast"); t.textContent = m; t.classList.add("on"); setTimeout(() => t.classList.remove("on"), 2200); };
 const fmtDate = (iso) => { const d = new Date(iso + "T00:00:00"); return `${d.getMonth()+1}월 ${d.getDate()}일 (${"일월화수목금토"[d.getDay()]})`; };
@@ -120,13 +156,14 @@ const isAdmin = () => !!me?.is_admin;
 
 /* ---------- 데이터 ---------- */
 async function loadAll() {
-  const [m, e, r] = await Promise.all([
+  const [m, e, r, d] = await Promise.all([
     sb.from("members").select("name,position,is_admin,sort_order").order("sort_order"),
     sb.from("events").select("*").order("event_date", { ascending: false }),
     sb.from("rsvps").select("*"),
+    sb.from("draws").select("*"),
   ]);
   if (m.error || e.error || r.error) { toast("불러오기 실패: " + (m.error || e.error || r.error).message); return; }
-  members = m.data; events = e.data; rsvps = r.data;
+  members = m.data; events = e.data; rsvps = r.data; draws = d.data || [];
   if (!events.find((x) => x.id === selectedId)) selectedId = events[0]?.id ?? null;
 }
 async function rpc(fn, args) {
@@ -139,10 +176,10 @@ const auth = () => ({ p_name: me.name, p_pin: me.pin });
 /* ---------- 렌더 ---------- */
 function render() {
   $("meBox").innerHTML = me ? `<div>${esc(me.name)}${isAdmin() ? '<span class="badge">관리자</span>' : ""}</div><button onclick="logout()">다른 이름으로 접속</button>` : "";
-  const tabs = me ? (isAdmin() ? [["event","이번 모임"],["history","지난 모임"],["members","회원 관리"]] : [["event","이번 모임"],["history","지난 모임"]]) : [];
+  const tabs = me ? (isAdmin() ? [["event","이번 모임"],["history","지난 모임"],["draw","상품 추첨"],["members","회원 관리"]] : [["event","이번 모임"],["history","지난 모임"]]) : [];
   $("nav").innerHTML = tabs.map(([k,l]) => `<button class="${tab===k?"on":""}" onclick="go('${k}')">${l}</button>`).join("");
-  ["login","event","history","members"].forEach((k) => $("s-"+k).classList.toggle("on", me ? tab===k : k==="login"));
-  if (!me) renderLogin(); else if (tab==="event") renderEvent(); else if (tab==="history") renderHistory(); else renderMembers();
+  ["login","event","history","members","draw"].forEach((k) => $("s-"+k).classList.toggle("on", me ? tab===k : k==="login"));
+  if (!me) renderLogin(); else if (tab==="event") renderEvent(); else if (tab==="history") renderHistory(); else if (tab==="draw") renderDraw(); else renderMembers();
 }
 function go(k) { tab = k; creating = false; render(); }
 function logout() { me = null; localStorage.removeItem("pga:me"); tab = "event"; render(); }
@@ -247,7 +284,8 @@ function renderEvent() {
     <div class="card"><div class="t" style="color:var(--flag)">불참 ${no.length}</div><ul>${no.map((r)=>`<li><span>${esc(r.name)}</span>${isAdmin()?`<button class="x" onclick="delRsvp('${esc(r.name)}')">×</button>`:""}</li>`).join("")||'<li style="opacity:.4">없음</li>'}</ul></div>
     <div class="card"><div class="t" style="color:var(--muted)">미회신 ${pending.length}</div><ul>${pending.map((n)=>`<li><span>${esc(n)}</span></li>`).join("")||'<li style="opacity:.4">없음</li>'}</ul></div>
   </div>
-  ${isAdmin() && pending.length ? `<div class="btns"><button class="btn" onclick="copyRemind()">미회신자 리마인드 문구 복사</button></div>` : ""}`;
+  ${isAdmin() && pending.length ? `<div class="btns"><button class="btn" onclick="copyRemind()">미회신자 리마인드 문구 복사</button></div>` : ""}
+  ${drawFor(ev.id) ? `<div class="result"><b>🎁 상품 추첨 결과</b><ul>${drawFor(ev.id).results.map((w,i)=>`<li><span style="font-size:20px">${medal(i)}</span><span style="flex:1"><b>${esc(w.name)}</b></span><span style="opacity:.7">${esc(w.prize)}</span></li>`).join("")}</ul></div>` : ""}`;
   window._status = my?.status || "yes";
   if (NAVER_MAP_CLIENT_ID && ev.lat) drawMap(ev.lat, ev.lng, false, ev.place);
 }
@@ -295,6 +333,79 @@ async function savePin(n, pos, adm) {
   try { await rpc("admin_upsert_member", { ...auth(), p_target: n, p_position: pos, p_target_pin: p, p_is_admin: adm }); if (n===me.name) { me.pin = p; localStorage.setItem("pga:me", JSON.stringify(me)); } toast(`${n} 뒷자리 변경`); } catch (e) { toast(e.message); }
 }
 async function delMember(n) { if (!confirm(`${n}님을 회원에서 삭제할까요?`)) return; try { await rpc("admin_delete_member", { ...auth(), p_target: n }); await loadAll(); render(); } catch (e) { toast(e.message); } }
+
+/* ---------- 상품 추첨 (관리자) ---------- */
+const medal = (i) => ["🏆","🥈","🥉"][i] || "🎖️";
+const drawFor = (evId) => draws.find((d) => d.event_id === evId);
+function drawPool() {
+  const ev = events.find((e) => e.id===selectedId); if (!ev) return [];
+  const yes = rsvps.filter((r) => r.event_id===ev.id && r.status==="yes").map((r) => r.name);
+  return [...yes, ...dr.extra].filter((n) => !dr.excluded.includes(n));
+}
+function renderDraw() {
+  const ev = events.find((e) => e.id===selectedId);
+  const box = $("s-draw");
+  if (!ev) { box.innerHTML = `<div class="empty">먼저 모임을 만들어 주세요. 추첨은 이번 모임 참석자를 대상으로 합니다.</div>`; return; }
+  const pool = drawPool(), yes = rsvps.filter((r) => r.event_id===ev.id && r.status==="yes").map((r) => r.name);
+  const saved = drawFor(ev.id);
+  let body = "";
+  if (dr.phase === "setup") {
+    const can = pool.length >= dr.prizes.length && dr.prizes.length >= 1;
+    body = `
+    <div class="box"><h3><span>🏌️ 참가자 ${pool.length}명 <small style="font-weight:400;opacity:.7">(${fmtDate(ev.event_date)} 참석자 자동)</small></span></h3>
+      <div class="chips">${[...yes, ...dr.extra].map((n) => `<span class="chip ${dr.excluded.includes(n)?"off":""}" onclick="drToggle('${esc(n)}')">${esc(n)}</span>`).join("") || '<span style="opacity:.6">참석 등록자가 아직 없어요</span>'}</div>
+      <div style="display:flex;gap:8px;margin-top:10px"><input id="drExtra" placeholder="참석자 외 추가 (이름)" style="padding-left:12px"><button class="ghost" style="width:auto;margin:0;padding:8px 14px" onclick="drAddExtra()">추가</button></div>
+      <div style="font-size:12px;opacity:.6;margin-top:6px">이름을 누르면 제외/포함이 바뀝니다.</div></div>
+    <div class="box"><h3><span>🎁 상품 ${dr.prizes.length}개</span><button class="ghost" style="width:auto;margin:0;padding:6px 12px" onclick="drAddPrize()">+ 추가</button></h3>
+      ${dr.prizes.map((p,i) => `<div class="prow"><span class="medal">${medal(i)}</span><input value="${esc(p)}" oninput="dr.prizes[${i}]=this.value" placeholder="${i+1}등 상품">${dr.prizes.length>1?`<button class="x" onclick="drRemovePrize(${i})">×</button>`:""}</div>`).join("")}</div>
+    ${!can ? `<div style="margin-top:12px;color:#fca5a5;font-size:14px;text-align:center">참가자 수(${pool.length})가 상품 수(${dr.prizes.length}) 이상이어야 해요</div>` : ""}
+    <button class="gold" ${can?"":"disabled"} onclick="drBegin()">🎲 추첨 시작</button>
+    ${saved ? `<div class="box" style="margin-top:16px"><h3>지난 추첨 결과 (저장됨)</h3><div class="chips">${saved.results.map((w,i)=>`<span class="chip won">${medal(i)} ${esc(w.name)} · ${esc(w.prize)}</span>`).join("")}</div></div>` : ""}`;
+  } else if (dr.phase === "finished") {
+    body = `<div style="text-align:center;margin-top:10px"><div style="font-size:44px">🏆</div><div style="color:#fcd34d;font-size:22px;font-weight:800">최종 당첨자</div><div class="sub">축하합니다! 🎊</div></div>
+    ${dr.winners.map((w,i) => `<div class="wcard ${["","s","b"][i]??"o"}" style="animation-delay:${i*.12}s"><div class="m">${medal(i)}</div><div><small>${esc(w.prize)}</small><b>${esc(w.name)}</b></div></div>`).join("")}
+    <button class="gold" onclick="drSave()">💾 결과 저장 (회원들에게 공개)</button>
+    <button class="ghost" onclick="drReset()">🔄 처음으로</button>`;
+  } else {
+    const remaining = pool.filter((n) => !dr.winners.some((w) => w.name===n));
+    body = `<div class="bar">${dr.prizes.map((_,i)=>`<i class="${i<dr.round?"done":i===dr.round?"cur":""}"></i>`).join("")}</div>
+    <div class="stage"><div class="top"><span>${medal(dr.round)}</span><span class="rank">${dr.round+1}등</span></div>
+      <div class="prize">🎁 ${esc(dr.prizes[dr.round])}</div>
+      <div class="name ${dr.phase}" id="drName">${dr.phase==="ready"?'<span style="font-size:15px;opacity:.7;font-weight:400">버튼을 눌러 추첨하세요</span>':dr.phase==="revealed"?`🎉 ${esc(dr.spin)} 🎉`:esc(dr.spin||"...")}</div></div>
+    ${dr.winners.length ? `<div class="box"><h3>이전 당첨자 (제외)</h3><div class="chips">${dr.winners.map((w,i)=>`<span class="chip won">${medal(i)} ${esc(w.name)}</span>`).join("")}</div></div>` : ""}
+    ${dr.phase==="ready" ? `<div class="sub" style="margin-top:10px;font-size:13px">남은 후보 ${remaining.length}명</div><button class="gold" onclick="drSpin()">🎲 ${dr.round+1}등 뽑기</button>` : ""}
+    ${dr.phase==="spinning" ? `<div class="ghost" style="text-align:center">추첨 중...</div>` : ""}
+    ${dr.phase==="revealed" ? `<button class="gold" onclick="drNext()">${dr.round < dr.prizes.length-1 ? `다음 → ${dr.round+2}등 추첨` : "🏆 최종 결과 보기"}</button>` : ""}`;
+  }
+  box.innerHTML = `<div class="draw" id="drawRoot"><div style="text-align:center;font-size:40px">⛳</div><h2>골프 상품 추첨</h2><div class="sub">${dr.phase==="setup"?`Lucky Draw · ${pool.length} → ${dr.prizes.length}`:dr.phase==="finished"?"All Winners":`Round ${dr.round+1} of ${dr.prizes.length}`}</div>${body}</div>`;
+}
+function drToggle(n) { dr.excluded = dr.excluded.includes(n) ? dr.excluded.filter((x)=>x!==n) : [...dr.excluded, n]; renderDraw(); }
+function drAddExtra() { const v = $("drExtra").value.trim(); if (!v) return; if (!dr.extra.includes(v)) dr.extra.push(v); renderDraw(); }
+function drAddPrize() { if (dr.prizes.length < 10) { dr.prizes.push(`${dr.prizes.length+1}등 상품`); renderDraw(); } }
+function drRemovePrize(i) { if (dr.prizes.length > 1) { dr.prizes.splice(i,1); renderDraw(); } }
+function drBegin() { dr.prizes = dr.prizes.map((p,i)=>p.trim()||`${i+1}등 상품`); dr.round = 0; dr.winners = []; dr.spin = ""; dr.phase = "ready"; renderDraw(); }
+function drSpin() {
+  const remaining = drawPool().filter((n) => !dr.winners.some((w) => w.name===n)); if (!remaining.length) return;
+  dr.phase = "spinning"; renderDraw();
+  const winner = remaining[Math.floor(Math.random()*remaining.length)], duration = 2800, t0 = Date.now();
+  const tick = () => {
+    const el = Date.now()-t0;
+    if (el >= duration) { dr.spin = winner; dr.winners.push({ name: winner, prize: dr.prizes[dr.round] }); dr.phase = "revealed"; renderDraw(); confettiBurst(); return; }
+    const p = el/duration; const n = $("drName"); if (n) n.textContent = remaining[Math.floor(Math.random()*remaining.length)];
+    setTimeout(tick, 60 + p*p*250);
+  };
+  tick();
+}
+function drNext() { if (dr.round >= dr.prizes.length-1) dr.phase = "finished"; else { dr.round++; dr.spin = ""; dr.phase = "ready"; } renderDraw(); }
+function drReset() { dr = { phase:"setup", prizes:["1등 상품","2등 상품","3등 상품"], excluded:[], extra:[], round:0, winners:[], spin:"" }; renderDraw(); }
+async function drSave() {
+  try { await rpc("admin_save_draw", { ...auth(), p_event_id: selectedId, p_results: dr.winners }); toast("추첨 결과를 저장했어요"); await loadAll(); drReset(); } catch (e) { toast(e.message); }
+}
+function confettiBurst() {
+  const root = $("drawRoot"); if (!root) return;
+  const cols = ["#FFD700","#FF6B6B","#4ECDC4","#95E1D3","#FFA07A","#fbbf24"];
+  for (let k=0;k<35;k++) { const d = document.createElement("div"); d.className = "conf"; d.style.cssText = `left:${20+Math.random()*60}%;background:${cols[k%6]};animation-duration:${1.8+Math.random()*1.2}s;animation-delay:${Math.random()*.4}s;transform:rotate(${Math.random()*360}deg)`; root.appendChild(d); setTimeout(()=>d.remove(), 4000); }
+}
 
 /* ---------- 네이버 지도 ---------- */
 function drawMap(lat, lng, editable, title) {
