@@ -143,7 +143,14 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
-let me = JSON.parse(localStorage.getItem("pga:me") || "null"); // {name, pin, is_admin}
+const SESSION_MS = 8 * 60 * 60 * 1000; // 8시간
+let me = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem("pga:me") || "null");
+    if (v && v.at && Date.now() - v.at > SESSION_MS) { localStorage.removeItem("pga:me"); return null; }
+    return v;
+  } catch { return null; }
+})();
 let members = [], events = [], rsvps = [], selectedId = null, tab = "event", creating = false;
 let naverMap = null, naverMarker = null;
 let draws = []; // {event_id, results:[{name,prize}]}
@@ -187,7 +194,7 @@ function logout() { me = null; localStorage.removeItem("pga:me"); tab = "event";
 function renderLogin() {
   $("s-login").innerHTML = `
   <div style="max-width:380px;margin:24px auto">
-    <h2>접속</h2><p class="sub">이름을 선택하고 휴대폰 번호 뒷자리 4자리를 입력하세요. 이 기기에 기억됩니다.</p>
+    <h2>접속</h2><p class="sub">이름을 선택하고 휴대폰 번호 뒷자리 4자리를 입력하세요. 이 기기에 8시간 동안 기억됩니다.</p>
     <div class="grid">
       <div><label>이름</label><select class="inp" id="lgName"><option value="">선택</option>${members.map((m)=>`<option value="${esc(m.name)}">${esc(m.name)}${m.is_admin?" (관리자)":""}</option>`).join("")}</select></div>
       <div><label>휴대폰 뒷자리 4자리</label><input class="inp" id="lgPin" type="password" inputmode="numeric" maxlength="4" placeholder="••••"></div>
@@ -203,7 +210,7 @@ async function doLogin() {
   if (pin.length !== 4) return $("lgErr").textContent = "뒷자리 4자리를 입력해 주세요";
   try {
     const r = await rpc("login", { p_name: name, p_pin: pin });
-    me = { name: r.name, pin, is_admin: r.is_admin };
+    me = { name: r.name, pin, is_admin: r.is_admin, at: Date.now() };
     localStorage.setItem("pga:me", JSON.stringify(me));
     render();
   } catch (e) { $("lgErr").textContent = e.message; }
@@ -274,6 +281,12 @@ function renderEvent() {
       <div style="display:flex;align-items:flex-end"><button class="btn p full" onclick="submitRsvp()">${my?"수정":"등록"}</button></div>
     </div>
   </div>
+  ${isAdmin() ? `<div class="card" style="border-style:dashed"><h3 style="margin-bottom:2px">관리자 · 참석자 대신 등록</h3><p class="sub" style="margin-bottom:10px">본인이 등록 못 한 회원을 대신 넣습니다.</p>
+    <div class="grid g3">
+      <div><label>회원</label><select class="inp" id="aName"><option value="">선택</option>${members.map((m)=>`<option value="${esc(m.name)}">${esc(m.name)}</option>`).join("")}</select></div>
+      <div><label>퇴근 시간</label><input class="inp" type="time" id="aLeave" value="17:30"></div>
+      <div style="display:flex;align-items:flex-end;gap:6px"><button class="btn p" style="flex:1" onclick="adminRsvp('yes')">참석</button><button class="btn" style="flex:1" onclick="adminRsvp('no')">불참</button></div>
+    </div></div>` : ""}
   <div class="sec-h"><h3>조 편성</h3><small>퇴근 시간이 가까운 순으로 ${GROUP_SIZE}명씩 자동 편성</small></div>
   ${groups.length ? `<div class="groups">${groups.map((g,i)=>`<div class="group"><div class="h"><span>${i+1}조</span><span>${esc(g[0].leave_time)} ~ ${esc(g[g.length-1].leave_time)} 퇴근</span></div><ul>
     ${g.map((r)=>`<li><span>${esc(r.name)}</span><span style="opacity:.7">${esc(r.leave_time)} 퇴근</span></li>`).join("")}
@@ -293,6 +306,11 @@ function setStatus(s) { window._status = s; $("rLeave").disabled = s==="no"; doc
 async function submitRsvp() {
   try { await rpc("upsert_rsvp", { ...auth(), p_event_id: selectedId, p_status: window._status, p_leave: window._status==="yes" ? $("rLeave").value : null });
     toast(window._status==="yes" ? "참석 등록했어요" : "불참 등록했어요"); await loadAll(); render(); } catch (e) { toast(e.message); }
+}
+async function adminRsvp(status) {
+  const name = $("aName").value; if (!name) return toast("회원을 선택해 주세요");
+  try { await rpc("admin_upsert_rsvp", { ...auth(), p_target: name, p_event_id: selectedId, p_status: status, p_leave: status==="yes" ? $("aLeave").value : null });
+    toast(`${name} ${status==="yes"?"참석":"불참"} 등록`); await loadAll(); render(); } catch (e) { toast(e.message); }
 }
 async function delRsvp(name) { try { await rpc("admin_delete_rsvp", { ...auth(), p_event_id: selectedId, p_target: name }); await loadAll(); render(); } catch (e) { toast(e.message); } }
 async function createMeeting() {
@@ -330,7 +348,7 @@ async function addMember() {
 }
 async function savePin(n, pos, adm) {
   const p = $("pin-"+n).value.replace(/\D/g,""); if (p.length!==4) return toast("뒷자리 4자리를 입력해 주세요");
-  try { await rpc("admin_upsert_member", { ...auth(), p_target: n, p_position: pos, p_target_pin: p, p_is_admin: adm }); if (n===me.name) { me.pin = p; localStorage.setItem("pga:me", JSON.stringify(me)); } toast(`${n} 뒷자리 변경`); } catch (e) { toast(e.message); }
+  try { await rpc("admin_upsert_member", { ...auth(), p_target: n, p_position: pos, p_target_pin: p, p_is_admin: adm }); if (n===me.name) { me = { ...me, pin: p }; localStorage.setItem("pga:me", JSON.stringify(me)); } toast(`${n} 뒷자리 변경`); } catch (e) { toast(e.message); }
 }
 async function delMember(n) { if (!confirm(`${n}님을 회원에서 삭제할까요?`)) return; try { await rpc("admin_delete_member", { ...auth(), p_target: n }); await loadAll(); render(); } catch (e) { toast(e.message); } }
 
