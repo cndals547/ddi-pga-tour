@@ -155,6 +155,7 @@ const DEFAULT_LAT = 37.5742, DEFAULT_LNG = 127.0123;
   <section id="s-history"></section>
   <section id="s-members"></section>
   <section id="s-draw"></section>
+  <section id="s-field"></section>
 </main>
 <div id="toast"></div>
 
@@ -175,6 +176,7 @@ let members = [], events = [], rsvps = [], selectedId = null, tab = "event", cre
 let naverMap = null, naverMarker = null;
 let draws = []; // {event_id, results:[{name,prize}]}
 let layouts = []; // {event_id, groups:[[name,...],...]} 관리자 수동 조 편성
+let fields = [], fentries = [], fCreating = false; // 필드 모임 (선착순)
 let ge = null;    // 조 편성 편집 중인 초안 {evId, groups:[[...]], un:[...]}
 let dr = { phase:"setup", prizes:["1등 상품","2등 상품","3등 상품"], excluded:[], extra:[], round:0, winners:[], spin:"" };
 
@@ -190,18 +192,21 @@ const sortMembers = (list) => [...list].sort((a, b) => (b.is_admin - a.is_admin)
 const memberRank = (n) => { const i = members.findIndex((m) => m.name === n); return i < 0 ? 1e9 : i; };
 const sortNames = (names) => [...names].sort((a, b) => (memberRank(a) - memberRank(b)) || byName(a, b));
 async function loadAll() {
-  const [m, e, r, d, g] = await Promise.all([
+  const [m, e, r, d, g, f, fe] = await Promise.all([
     sb.from("members").select("name,position,is_admin,sort_order").order("sort_order"),
     sb.from("events").select("*").order("event_date", { ascending: false }),
     sb.from("rsvps").select("*"),
     sb.from("draws").select("*"),
     sb.from("group_layouts").select("*"),
+    sb.from("field_events").select("*").order("event_date"),
+    sb.from("field_entries").select("*").order("created_at"),
   ]);
   if (m.error || e.error || r.error) { toast("불러오기 실패: " + (m.error || e.error || r.error).message); return; }
-  members = sortMembers(m.data); events = e.data; rsvps = r.data; draws = d.data || []; layouts = g.data || [];
+  members = sortMembers(m.data); events = e.data; rsvps = r.data; draws = d.data || []; layouts = g.data || []; fields = f.data || []; fentries = fe.data || [];
   if (!events.find((x) => x.id === selectedId)) selectedId = events[0]?.id ?? null;
 }
 async function rpc(fn, args) {
+  if (fn !== "login" && me && !checkSession()) throw new Error("로그인 시간이 지났어요. 다시 접속해 주세요");
   const { data, error } = await sb.rpc(fn, args);
   if (error) throw new Error(error.message.replace(/^.*?: /, ""));
   return data;
@@ -210,14 +215,21 @@ const auth = () => ({ p_name: me.name, p_pin: me.pin });
 
 /* ---------- 렌더 ---------- */
 function render() {
-  $("meBox").innerHTML = me ? `<div>${esc(me.name)}${isAdmin() ? '<span class="badge">관리자</span>' : ""}</div><button onclick="logout()">다른 이름으로 접속</button>` : "";
-  const tabs = me ? (isAdmin() ? [["event","이번 모임"],["history","지난 모임"],["draw","상품 추첨"],["members","회원 관리"]] : [["event","이번 모임"],["history","지난 모임"]]) : [];
+  $("meBox").innerHTML = me ? `<div>${esc(me.name)}${isAdmin() ? '<span class="badge">관리자</span>' : ""}</div><div style="opacity:.7;font-size:11px">${sessionUntil()}까지 로그인 유지</div><button onclick="logout()">로그아웃 · 다른 이름으로 접속</button>` : "";
+  const tabs = me ? (isAdmin() ? [["event","이번 모임"],["history","지난 모임"],["field","필드 모임"],["draw","상품 추첨"],["members","회원 관리"]] : [["event","이번 모임"],["history","지난 모임"],["field","필드 모임"]]) : [];
   $("nav").innerHTML = tabs.map(([k,l]) => `<button class="${tab===k?"on":""}" onclick="go('${k}')">${l}</button>`).join("");
-  ["login","event","history","members","draw"].forEach((k) => $("s-"+k).classList.toggle("on", me ? tab===k : k==="login"));
-  if (!me) renderLogin(); else if (tab==="event") renderEvent(); else if (tab==="history") renderHistory(); else if (tab==="draw") renderDraw(); else renderMembers();
+  ["login","event","history","members","draw","field"].forEach((k) => $("s-"+k).classList.toggle("on", me ? tab===k : k==="login"));
+  if (!me) renderLogin(); else if (tab==="event") renderEvent(); else if (tab==="history") renderHistory(); else if (tab==="draw") renderDraw(); else if (tab==="field") renderField(); else renderMembers();
 }
-function go(k) { tab = k; creating = false; ge = null; render(); }
-function logout() { me = null; localStorage.removeItem("pga:me"); tab = "event"; render(); }
+function go(k) { tab = k; creating = false; ge = null; fCreating = false; render(); }
+function logout() { me = null; localStorage.removeItem("pga:me"); tab = "event"; ge = null; render(); }
+// 로그인 세션: 8시간 지나면 화면을 켜둔 상태여도 자동 로그아웃
+const sessionExpired = () => !!me && (!me.at || Date.now() - me.at > SESSION_MS);
+const sessionUntil = () => { const d = new Date((me?.at || Date.now()) + SESSION_MS); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
+function checkSession() { if (sessionExpired()) { logout(); toast("로그인 시간(8시간)이 지나 로그아웃됐어요. 다시 접속해 주세요"); return false; } return true; }
+setInterval(checkSession, 30 * 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkSession(); });
+window.addEventListener("focus", checkSession);
 
 function renderLogin() {
   $("s-login").innerHTML = `
@@ -605,6 +617,99 @@ function confettiBurst() {
   const root = $("drawRoot"); if (!root) return;
   const cols = ["#FFD700","#FF6B6B","#4ECDC4","#95E1D3","#FFA07A","#fbbf24"];
   for (let k=0;k<35;k++) { const d = document.createElement("div"); d.className = "conf"; d.style.cssText = `left:${20+Math.random()*60}%;background:${cols[k%6]};animation-duration:${1.8+Math.random()*1.2}s;animation-delay:${Math.random()*.4}s;transform:rotate(${Math.random()*360}deg)`; root.appendChild(d); setTimeout(()=>d.remove(), 4000); }
+}
+
+/* ---------- 필드 모임 (선착순, N회성) ---------- */
+const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const fmtStamp = (ts) => { const d = new Date(ts); const p = (n) => String(n).padStart(2,"0"); return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+const entriesOf = (id) => fentries.filter((x) => x.event_id===id).sort((a,b) => a.created_at.localeCompare(b.created_at));
+const fieldOpen = (f) => !f.closed && (!f.deadline || new Date(f.deadline) > new Date());
+function renderField() {
+  const box = $("s-field");
+  if (fCreating && isAdmin()) {
+    const d = new Date(); const ym = `${d.getMonth()+1}월`;
+    box.innerHTML = `<h2>새 필드 모임</h2><p class="sub">정원까지 신청 순서대로 확정되고, 넘치면 대기 순번이 붙습니다. 확정자가 취소하면 대기 1번이 자동으로 올라갑니다.</p>
+    <div class="grid g2">
+      <div><label>모임 이름</label><input class="inp" id="fTitle" value="${ym} 필드 모임"></div>
+      <div><label>날짜</label><input class="inp" type="date" id="fDate"></div>
+      <div><label>티오프 시간</label><input class="inp" type="time" id="fTee" value="07:00"></div>
+      <div><label>정원 (선착순)</label><input class="inp" type="number" id="fCap" min="1" value="8"></div>
+      <div><label>골프장</label><input class="inp" id="fCourse" placeholder="예) ○○CC"></div>
+      <div><label>주소</label><input class="inp" id="fAddr"></div>
+      <div><label>지도/예약 링크</label><input class="inp" id="fLink" placeholder="https://"></div>
+      <div><label>비용</label><input class="inp" id="fFee" placeholder="예) 그린피+카트 1인 18만원"></div>
+      <div><label>신청 마감 (비우면 직접 마감할 때까지)</label><input class="inp" type="datetime-local" id="fDeadline"></div>
+      <div><label>메모</label><input class="inp" id="fNote" placeholder="카풀, 준비물 등"></div>
+    </div>
+    <div class="btns"><button class="btn p" onclick="createField()">필드 모임 만들기</button><button class="btn" onclick="fCreating=false;renderField()">취소</button></div>`;
+    return;
+  }
+  const today = localToday();
+  const upcoming = fields.filter((f) => f.event_date >= today);
+  const past = fields.filter((f) => f.event_date < today).reverse();
+  box.innerHTML = `<div class="sec-h" style="margin-top:0"><h2>필드 모임</h2>${isAdmin() ? `<button class="btn p" onclick="fCreating=true;renderField()">+ 새 필드 모임</button>` : ""}</div>
+  <p class="sub">정기 모임과 별도로 열리는 필드 라운딩입니다. 신청 순서대로 정원까지 확정돼요.</p>
+  ${upcoming.length ? upcoming.map(fieldCard).join("") : `<div class="empty">예정된 필드 모임이 없어요.${isAdmin() ? " 위에서 새로 만들어 보세요." : ""}</div>`}
+  ${past.length ? `<div class="sec-h"><h3>지난 필드 모임</h3><small>${past.length}회</small></div><ul class="hist" style="padding:0;margin:0">${past.map((f) => { const n = Math.min(entriesOf(f.id).length, f.capacity);
+    return `<li><a><b>${fmtDate(f.event_date)} · ${esc(f.title)}</b><small>${esc(f.course || "")} · 참가 ${n}명 · ${esc(entriesOf(f.id).slice(0, f.capacity).map((x) => x.name).join(", "))}</small></a>${isAdmin() ? `<button class="btn" onclick="delField(${f.id})">삭제</button>` : ""}</li>`; }).join("")}</ul>` : ""}`;
+}
+function fieldCard(f) {
+  const list = entriesOf(f.id), cap = f.capacity, conf = list.slice(0, cap), wait = list.slice(cap);
+  const myIdx = list.findIndex((x) => x.name === me.name), open = fieldOpen(f);
+  const myState = myIdx < 0 ? "" : myIdx < cap ? `<span class="mine" style="color:var(--green)">✅ 확정 (${myIdx+1}번째 신청)</span>` : `<span class="mine" style="color:#B7791F">⏳ 대기 ${myIdx-cap+1}번</span>`;
+  const left = Math.max(0, cap - list.length);
+  const notJoined = members.map((m) => m.name).filter((n) => !list.some((x) => x.name === n));
+  return `<div class="card hero" style="margin-bottom:12px">
+    <div class="row">
+      <div><small style="opacity:.75">${esc(f.title)}</small><div class="date">${fmtDate(f.event_date)}${f.tee_time ? ` · ${esc(f.tee_time)} 티오프` : ""}</div>
+        <div style="font-size:14px">${esc(f.course || "")}${f.address ? `<br><span style="opacity:.75">${esc(f.address)}</span>` : ""}${f.link ? `<br><a href="${esc(f.link)}" target="_blank" rel="noreferrer">지도/예약 링크</a>` : ""}
+        ${f.fee ? `<br>💰 ${esc(f.fee)}` : ""}${f.note ? `<br>📝 ${esc(f.note)}` : ""}</div></div>
+      <div class="big">${conf.length}<small>/ ${cap}명</small></div>
+    </div>
+    <div style="font-size:13px;margin-top:10px;opacity:.85">${open ? (left ? `🟢 신청 중 · 남은 자리 ${left}` : `🟡 정원 마감 · 대기 신청 가능`) : "🔴 신청 마감"}${f.deadline ? ` · 마감 ${fmtStamp(f.deadline).slice(0,-3)}` : ""}${wait.length ? ` · 대기 ${wait.length}명` : ""}</div>
+    <div class="btns" style="align-items:center">
+      ${myIdx < 0 ? (open ? `<button class="btn" style="background:#fff;color:var(--green-deep);font-weight:700" onclick="fieldApply(${f.id})">${left ? "선착순 신청하기" : "대기 신청하기"}</button>` : "")
+                  : `${myState}<button class="btn l" onclick="fieldCancel(${f.id})">신청 취소</button>`}
+      ${isAdmin() ? `<span style="flex:1"></span><button class="btn l" onclick="copyFieldAnn(${f.id})">안내 문구 복사</button><button class="btn l" onclick="closeField(${f.id},${!f.closed})">${f.closed ? "마감 해제" : "지금 마감"}</button><button class="btn l" onclick="delField(${f.id})">삭제</button>` : ""}
+    </div>
+  </div>
+  <div class="card" style="margin-top:-6px">
+    <div class="t" style="font-weight:700;margin-bottom:6px">신청 순서 ${list.length}명</div>
+    <ul class="mlist" style="margin:0 -18px">${list.map((x, i) => `<li><span style="width:26px;opacity:.6">${i+1}</span><span class="n">${esc(x.name)}${x.name===me.name ? " (나)" : ""}</span>
+      ${i < cap ? `<span class="gtag man">확정</span>` : `<span class="gtag" style="background:#FDE7B0">대기 ${i-cap+1}</span>`}
+      <span style="opacity:.55;font-size:12px;min-width:92px;text-align:right">${fmtStamp(x.created_at)}</span>
+      ${isAdmin() ? `<button class="x" onclick="fieldRemove(${f.id},'${esc(x.name)}')">×</button>` : ""}</li>`).join("") || `<li style="opacity:.5">아직 신청자가 없어요</li>`}</ul>
+    ${isAdmin() ? `<div class="grid" style="grid-template-columns:1fr auto;margin-top:10px"><select class="inp" id="fAdd-${f.id}"><option value="">회원 대신 추가 (신청 시각 = 지금)</option>${notJoined.map((n) => `<option>${esc(n)}</option>`).join("")}</select><button class="btn" onclick="fieldAdd(${f.id})">추가</button></div>` : ""}
+  </div>`;
+}
+async function createField() {
+  const v = (id) => $(id).value.trim();
+  if (!v("fDate")) return toast("날짜를 입력해 주세요");
+  const cap = parseInt(v("fCap"), 10); if (!(cap > 0)) return toast("정원을 1명 이상으로 입력해 주세요");
+  try { await rpc("admin_create_field", { ...auth(), p_title: v("fTitle"), p_date: v("fDate"), p_tee: v("fTee") || null, p_course: v("fCourse") || null, p_address: v("fAddr") || null,
+      p_link: v("fLink") || null, p_capacity: cap, p_fee: v("fFee") || null, p_note: v("fNote") || null, p_deadline: v("fDeadline") ? new Date(v("fDeadline")).toISOString() : null });
+    fCreating = false; toast("필드 모임을 만들었어요"); await loadAll(); render(); } catch (e) { toast(e.message); }
+}
+async function fieldDo(fn, args, msg) { try { await rpc(fn, { ...auth(), ...args }); if (msg) toast(msg); } catch (e) { toast(e.message); } await loadAll(); render(); }
+function fieldApply(id) { fieldDo("field_apply", { p_id: id }).then(() => { const l = entriesOf(id), i = l.findIndex((x) => x.name===me.name), f = fields.find((x) => x.id===id); if (i >= 0) toast(i < f.capacity ? `확정! ${i+1}번째로 신청했어요` : `정원이 차서 대기 ${i-f.capacity+1}번이에요`); }); }
+function fieldCancel(id) { if (confirm("신청을 취소할까요? 다시 신청하면 맨 뒤 순서가 됩니다.")) fieldDo("field_cancel", { p_id: id }, "신청을 취소했어요"); }
+function fieldRemove(id, n) { if (confirm(`${n}님을 신청 명단에서 뺄까요?`)) fieldDo("admin_field_remove", { p_id: id, p_target: n }, `${n} 제외`); }
+function fieldAdd(id) { const n = $("fAdd-"+id).value; if (!n) return toast("회원을 선택해 주세요"); fieldDo("admin_field_add", { p_id: id, p_target: n }, `${n} 추가`); }
+function closeField(id, closed) { fieldDo("admin_close_field", { p_id: id, p_closed: closed }, closed ? "신청을 마감했어요" : "다시 신청을 받아요"); }
+async function delField(id) { if (!confirm("이 필드 모임을 삭제할까요? 신청 명단도 함께 지워집니다.")) return; fieldDo("admin_delete_field", { p_id: id }, "삭제했어요"); }
+function copyFieldAnn(id) {
+  const f = fields.find((x) => x.id===id);
+  copy(`안녕하세요, PGA 투어 동호회 입니다.
+
+${f.title} 신청을 받습니다. (선착순 ${f.capacity}명)
+
+일시 : ${fmtDate(f.event_date)}${f.tee_time ? ` ${f.tee_time} 티오프` : ""}
+장소 : ${f.course || ""}${f.address ? ` (${f.address})` : ""}${f.fee ? `\n비용 : ${f.fee}` : ""}${f.deadline ? `\n신청 마감 : ${fmtStamp(f.deadline).slice(0,-3)}` : ""}${f.note ? `\n참고 : ${f.note}` : ""}
+
+아래 동호회 페이지 → [필드 모임] 탭에서 신청해 주세요. 신청 순서대로 확정되고, 정원 이후는 대기 순번이 붙습니다.
+▶ ${SITE_URL}${f.link ? `\n\n${f.link}` : ""}
+
+감사합니다.`, "필드 모임 안내 문구를 복사했어요");
 }
 
 /* ---------- 네이버 지도 ---------- */
