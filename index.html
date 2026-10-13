@@ -74,6 +74,10 @@ const DEFAULT_LAT = 37.5742, DEFAULT_LNG = 127.0123;
   .st { display:grid; gap:12px; margin-top:18px; } @media (min-width:600px){ .st { grid-template-columns:1fr 1fr 1fr; } }
   .st .card { margin:0; padding:14px; } .st .t { font-weight:700; font-size:14px; margin-bottom:8px; }
   .st li { display:flex; justify-content:space-between; font-size:14px; padding:2px 0; }
+  .st .dz { padding:0 !important; min-height:60px; border-radius:10px; }
+  .st .dchip { padding:8px 10px !important; }
+  .st .card.yes .dchip { border-left:3px solid var(--green) !important; }
+  .st .card.no .dchip { border-left:3px solid var(--flag) !important; }
   .x { background:none; border:0; opacity:.35; cursor:pointer; font-size:16px; line-height:1; } .x:hover { opacity:1; }
   .empty { border:1px dashed var(--line); border-radius:14px; padding:24px; text-align:center; font-size:14px; opacity:.7; }
   .mlist li { display:flex; align-items:center; gap:10px; padding:8px 14px; font-size:14px; border-top:1px solid var(--line); }
@@ -311,15 +315,11 @@ function renderEvent() {
       <div style="display:flex;align-items:flex-end;gap:6px"><button class="btn p" style="flex:1" onclick="adminRsvp('yes')">참석</button><button class="btn" style="flex:1" onclick="adminRsvp('no')">불참</button></div>
     </div></div>` : ""}
   <div id="grpBox"></div>
-  <div class="st">
-    <div class="card"><div class="t" style="color:var(--green)">참석 ${yes.length}</div><ul>${yes.map((r)=>`<li><span>${esc(r.name)} · ${esc(r.leave_time)}</span>${isAdmin()?`<button class="x" onclick="delRsvp('${esc(r.name)}')">×</button>`:""}</li>`).join("")||'<li style="opacity:.4">없음</li>'}</ul></div>
-    <div class="card"><div class="t" style="color:var(--flag)">불참 ${no.length}</div><ul>${no.map((r)=>`<li><span>${esc(r.name)}</span>${isAdmin()?`<button class="x" onclick="delRsvp('${esc(r.name)}')">×</button>`:""}</li>`).join("")||'<li style="opacity:.4">없음</li>'}</ul></div>
-    <div class="card"><div class="t" style="color:var(--muted)">미회신 ${pending.length}</div><ul>${pending.map((n)=>`<li><span>${esc(n)}</span></li>`).join("")||'<li style="opacity:.4">없음</li>'}</ul></div>
-  </div>
+  <div id="attBox"></div>
   ${isAdmin() && pending.length ? `<div class="btns"><button class="btn" onclick="copyRemind()">미회신자 리마인드 문구 복사</button></div>` : ""}
   ${drawFor(ev.id) ? `<div class="result"><b>🎁 상품 추첨 결과</b><ul>${drawFor(ev.id).results.map((w,i)=>`<li><span style="font-size:20px">${medal(i)}</span><span style="flex:1"><b>${esc(w.name)}</b></span><span style="opacity:.7">${esc(w.prize)}</span></li>`).join("")}</ul></div>` : ""}`;
   window._status = my?.status || "yes";
-  renderGroups();
+  renderGroups(); renderAtt();
   if (NAVER_MAP_CLIENT_ID && ev.lat) drawMap(ev.lat, ev.lng, false, ev.place);
 }
 
@@ -398,6 +398,38 @@ function moveName(name, toKey, beforeName) {
   if (toKey === "un" && !beforeName) ge.un = sortNames(ge.un);
 }
 
+/* ---------- 참석 / 불참 / 미회신 보드 (관리자는 끌어서 바로 변경) ---------- */
+function renderAtt() {
+  const box = $("attBox"); const ev = events.find((e) => e.id===selectedId); if (!box || !ev) return;
+  const of = (st) => sortNames(rsvps.filter((r)=>r.event_id===ev.id && r.status===st).map((r)=>r.name));
+  const yes = of("yes"), no = of("no");
+  const pending = members.map((m)=>m.name).filter((n)=>!rsvps.some((r)=>r.event_id===ev.id && r.name===n));
+  const cols = [["yes","참석","var(--green)",yes],["no","불참","var(--flag)",no],["none","미회신","var(--muted)",pending]];
+  if (!isAdmin()) {
+    box.innerHTML = `<div class="st">${cols.map(([k,l,c,list])=>`<div class="card"><div class="t" style="color:${c}">${l} ${list.length}</div><ul>${list.map((n)=>`<li><span>${esc(n)}${k==="yes"?` · ${esc(leaveOf(ev.id,n))}`:""}</span></li>`).join("")||'<li style="opacity:.4">없음</li>'}</ul></div>`).join("")}</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="sec-h" style="margin-bottom:0"><h3>참석 현황</h3><small>이름을 끌어서 다른 칸에 놓으면 바로 바뀝니다</small></div>
+  <div class="st">${cols.map(([k,l,c,list])=>`<div class="card ${k}"><div class="t" style="color:${c}">${l} ${list.length}</div>
+    <ul class="dz" data-kind="att" data-g="${k}">${list.map((n)=>`<li class="dchip" data-n="${esc(n)}"><span>${esc(n)}</span>${k==="yes"?`<span style="opacity:.6;font-size:13px">${esc(leaveOf(ev.id,n))}</span>`:""}</li>`).join("") || `<li class="hint">여기로 끌어다 놓기</li>`}</ul></div>`).join("")}</div>`;
+}
+async function moveAttendance(name, to) {
+  const evId = selectedId, cur = rsvps.find((r)=>r.event_id===evId && r.name===name);
+  const from = cur ? cur.status : "none"; if (from === to) return;
+  const leave = cur?.leave_time || "17:30";
+  // 화면 먼저 바꾸고 서버에 반영 (실패하면 되돌림)
+  rsvps = rsvps.filter((r)=>!(r.event_id===evId && r.name===name));
+  if (to !== "none") rsvps.push({ event_id: evId, name, status: to, leave_time: to==="yes" ? leave : null });
+  if (ge && ge.evId === evId) { ge.groups = ge.groups.map((g)=>g.filter((n)=>n!==name)); ge.un = ge.un.filter((n)=>n!==name); if (to==="yes") ge.un = sortNames([...ge.un, name]); }
+  render();
+  try {
+    if (to === "none") await rpc("admin_delete_rsvp", { ...auth(), p_event_id: evId, p_target: name });
+    else await rpc("admin_upsert_rsvp", { ...auth(), p_target: name, p_event_id: evId, p_status: to, p_leave: to==="yes" ? leave : null });
+    toast(`${name} → ${{yes:"참석",no:"불참",none:"미회신"}[to]}${to==="yes" && !cur?.leave_time ? " (퇴근 17:30, 위 '대신 등록'에서 수정 가능)" : ""}`);
+  } catch (e) { toast(e.message); }
+  await loadAll(); render();
+}
+
 // 마우스·터치 공통 드래그 (Pointer Events — 외부 라이브러리 없음)
 let drag = null, autoScroll = null;
 function dzAt(x, y) {
@@ -406,10 +438,12 @@ function dzAt(x, y) {
 }
 function clearMarks() { document.querySelectorAll(".dz.over").forEach((z)=>z.classList.remove("over")); document.querySelectorAll(".dchip.before").forEach((c)=>c.classList.remove("before")); }
 document.addEventListener("pointerdown", (e) => {
-  const c = e.target.closest(".dchip"); if (!c || !ge || (e.button && e.button !== 0)) return;
+  const c = e.target.closest(".dchip"); if (!c || (e.button && e.button !== 0)) return;
+  const kind = c.closest(".dz")?.dataset.kind || "grp";
+  if (kind === "grp" ? !ge : !isAdmin()) return;
   e.preventDefault();
   try { c.releasePointerCapture?.(e.pointerId); } catch {}
-  drag = { name:c.dataset.n, src:c, id:e.pointerId, x0:e.clientX, y0:e.clientY, ghost:null, offX:0, offY:0 };
+  drag = { kind, name:c.dataset.n, src:c, id:e.pointerId, x0:e.clientX, y0:e.clientY, ghost:null, offX:0, offY:0 };
 });
 document.addEventListener("pointermove", (e) => {
   if (!drag || e.pointerId !== drag.id) return;
@@ -425,7 +459,7 @@ document.addEventListener("pointermove", (e) => {
   drag.ghost.style.left = (e.clientX - drag.offX) + "px"; drag.ghost.style.top = (e.clientY - drag.offY) + "px";
   clearMarks();
   const { zone, chip } = dzAt(e.clientX, e.clientY);
-  if (zone) zone.classList.add("over");
+  if (zone && (zone.dataset.kind || "grp") === drag.kind) zone.classList.add("over");
   if (chip && chip !== drag.src) chip.classList.add("before");
   // 화면 위/아래 가장자리에서 자동 스크롤
   const edge = 70, h = window.innerHeight; clearInterval(autoScroll); autoScroll = null;
@@ -440,7 +474,8 @@ function endDrag(e, cancel) {
   d.ghost.remove(); d.src.classList.remove("dragging");
   if (cancel) return;
   const { zone, chip } = dzAt(e.clientX, e.clientY);
-  if (!zone) return;
+  if (!zone || (zone.dataset.kind || "grp") !== d.kind) return;
+  if (d.kind === "att") return moveAttendance(d.name, zone.dataset.g);
   moveName(d.name, zone.dataset.g, chip && chip.dataset.n !== d.name ? chip.dataset.n : null);
   renderGroups();
 }
