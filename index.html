@@ -74,7 +74,8 @@ const DEFAULT_LAT = 37.5742, DEFAULT_LNG = 127.0123;
   .st { display:grid; gap:12px; margin-top:18px; } @media (min-width:600px){ .st { grid-template-columns:1fr 1fr 1fr; } }
   .st .card { margin:0; padding:14px; } .st .t { font-weight:700; font-size:14px; margin-bottom:8px; }
   .st li { display:flex; justify-content:space-between; font-size:14px; padding:2px 0; }
-  .st .dz { padding:0 !important; min-height:60px; border-radius:10px; }
+  .st .card.yes, .st .card.no, .st .card.none { display:flex; flex-direction:column; }
+  .st .dz { padding:0 !important; min-height:60px; border-radius:10px; flex:1; }
   .st .dchip { padding:8px 10px !important; }
   .st .card.yes .dchip { border-left:3px solid var(--green) !important; }
   .st .card.no .dchip { border-left:3px solid var(--flag) !important; }
