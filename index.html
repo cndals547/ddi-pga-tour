@@ -656,7 +656,7 @@ function renderField() {
 function fieldCard(f) {
   const list = entriesOf(f.id), cap = f.capacity, conf = list.slice(0, cap), wait = list.slice(cap);
   const myIdx = list.findIndex((x) => x.name === me.name), open = fieldOpen(f);
-  const myState = myIdx < 0 ? "" : myIdx < cap ? `<span class="mine" style="color:var(--green)">✅ 확정 (${myIdx+1}번째 신청)</span>` : `<span class="mine" style="color:#B7791F">⏳ 대기 ${myIdx-cap+1}번</span>`;
+  const myState = myIdx < 0 ? "" : myIdx < cap ? `<span class="mine" style="color:#A7F3D0">✅ 확정 (${myIdx+1}번째 신청)</span>` : `<span class="mine" style="color:#FCD34D">⏳ 대기 ${myIdx-cap+1}번</span>`;
   const left = Math.max(0, cap - list.length);
   const notJoined = members.map((m) => m.name).filter((n) => !list.some((x) => x.name === n));
   return `<div class="card hero" style="margin-bottom:12px">
