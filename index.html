@@ -341,6 +341,7 @@ const timeRange = (evId, g) => { const t = g.map((n) => leaveOf(evId, n)).filter
 function renderGroups() {
   const box = $("grpBox"); if (!box) return;
   const ev = events.find((e) => e.id===selectedId); if (!ev) return;
+  if (ge && !isAdmin()) ge = null;
   if (ge) return renderGroupEditor(ev);
   const { manual, groups, un } = effGroups(ev.id);
   const tag = manual ? `<span class="gtag man">관리자 편성</span>` : `<span class="gtag">퇴근시간순 ${GROUP_SIZE}명씩 자동</span>`;
@@ -373,6 +374,7 @@ function renderGroupEditor(ev) {
   ${layouts.some((l)=>l.event_id===ev.id && l.groups?.length) ? `<div style="text-align:right;margin-top:6px"><button class="btn" style="font-size:12px;padding:5px 10px;opacity:.7" onclick="resetGroupsToAuto()">수동 편성 해제 (자동으로 되돌리기)</button></div>` : ""}`;
 }
 function startEditGroups() {
+  if (!isAdmin()) return;
   const { groups, un } = effGroups(selectedId);
   ge = { evId:selectedId, groups:groups.map((g)=>[...g]), un:[...un] };
   if (!ge.groups.length) ge.groups.push([]);
@@ -441,7 +443,7 @@ function clearMarks() { document.querySelectorAll(".dz.over").forEach((z)=>z.cla
 document.addEventListener("pointerdown", (e) => {
   const c = e.target.closest(".dchip"); if (!c || (e.button && e.button !== 0)) return;
   const kind = c.closest(".dz")?.dataset.kind || "grp";
-  if (kind === "grp" ? !ge : !isAdmin()) return;
+  if (!isAdmin() || (kind === "grp" && !ge)) return; // 끌기는 관리자만
   e.preventDefault();
   try { c.releasePointerCapture?.(e.pointerId); } catch {}
   drag = { kind, name:c.dataset.n, src:c, id:e.pointerId, x0:e.clientX, y0:e.clientY, ghost:null, offX:0, offY:0 };
