@@ -117,6 +117,21 @@ const DEFAULT_LAT = 37.5742, DEFAULT_LNG = 127.0123;
   @keyframes fall { 0%{transform:translateY(0) rotate(0);opacity:1} 100%{transform:translateY(90vh) rotate(720deg);opacity:0} }
   @keyframes pop { 0%{transform:scale(.3) rotate(-15deg);opacity:0} 70%{transform:scale(1.1) rotate(5deg);opacity:1} 100%{transform:scale(1);opacity:1} }
   @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
+  /* 조 편성 편집 (드래그앤드랍) */
+  .gtag { font-size:12px; padding:2px 8px; border-radius:999px; background:var(--line); color:var(--ink); font-weight:500; }
+  .gtag.man { background:var(--green); color:#fff; }
+  .dz { min-height:52px; padding:6px !important; display:flex; flex-direction:column; gap:6px; transition:background .15s; }
+  .dz.over { background:#E7F2EA; }
+  .dz .hint { font-size:13px; opacity:.4; text-align:center; padding:10px 0; border:1px dashed var(--line); border-radius:8px; }
+  .dchip { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px !important; border:1px solid var(--line) !important; border-radius:10px; background:#fff; font-size:14px; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
+  .dchip::before { content:"⠿"; opacity:.35; margin-right:2px; }
+  .dchip span:first-of-type { flex:1; font-weight:500; }
+  .dchip.dragging { opacity:.3; }
+  .dchip.before { box-shadow:0 -3px 0 var(--green); }
+  .ghost-chip { position:fixed; z-index:1000; pointer-events:none; box-shadow:0 8px 24px rgba(0,0,0,.25); transform:rotate(-2deg) scale(1.04); cursor:grabbing; }
+  .group.unas { border-style:dashed; } .group.unas .h { background:var(--muted); }
+  .group .h .gx { background:none; border:0; color:#fff; opacity:.7; cursor:pointer; font-size:16px; padding:0 0 0 8px; }
+  .editbar { position:sticky; bottom:12px; display:flex; gap:8px; flex-wrap:wrap; background:#fff; border:1px solid var(--line); border-radius:14px; padding:10px; margin-top:14px; box-shadow:0 6px 20px rgba(0,0,0,.08); z-index:5; }
   .result { background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px 18px; margin-top:18px; }
   .result ul { list-style:none; margin:8px 0 0; padding:0; } .result li { display:flex; gap:10px; align-items:center; padding:6px 0; border-top:1px solid var(--line); font-size:14px; } .result li:first-child { border-top:0; }
 </style>
@@ -154,6 +169,8 @@ let me = (() => {
 let members = [], events = [], rsvps = [], selectedId = null, tab = "event", creating = false;
 let naverMap = null, naverMarker = null;
 let draws = []; // {event_id, results:[{name,prize}]}
+let layouts = []; // {event_id, groups:[[name,...],...]} 관리자 수동 조 편성
+let ge = null;    // 조 편성 편집 중인 초안 {evId, groups:[[...]], un:[...]}
 let dr = { phase:"setup", prizes:["1등 상품","2등 상품","3등 상품"], excluded:[], extra:[], round:0, winners:[], spin:"" };
 
 const toast = (m) => { const t = $("toast"); t.textContent = m; t.classList.add("on"); setTimeout(() => t.classList.remove("on"), 2200); };
@@ -163,14 +180,15 @@ const isAdmin = () => !!me?.is_admin;
 
 /* ---------- 데이터 ---------- */
 async function loadAll() {
-  const [m, e, r, d] = await Promise.all([
+  const [m, e, r, d, g] = await Promise.all([
     sb.from("members").select("name,position,is_admin,sort_order").order("sort_order"),
     sb.from("events").select("*").order("event_date", { ascending: false }),
     sb.from("rsvps").select("*"),
     sb.from("draws").select("*"),
+    sb.from("group_layouts").select("*"),
   ]);
   if (m.error || e.error || r.error) { toast("불러오기 실패: " + (m.error || e.error || r.error).message); return; }
-  members = m.data; events = e.data; rsvps = r.data; draws = d.data || [];
+  members = m.data; events = e.data; rsvps = r.data; draws = d.data || []; layouts = g.data || [];
   if (!events.find((x) => x.id === selectedId)) selectedId = events[0]?.id ?? null;
 }
 async function rpc(fn, args) {
@@ -188,7 +206,7 @@ function render() {
   ["login","event","history","members","draw"].forEach((k) => $("s-"+k).classList.toggle("on", me ? tab===k : k==="login"));
   if (!me) renderLogin(); else if (tab==="event") renderEvent(); else if (tab==="history") renderHistory(); else if (tab==="draw") renderDraw(); else renderMembers();
 }
-function go(k) { tab = k; creating = false; render(); }
+function go(k) { tab = k; creating = false; ge = null; render(); }
 function logout() { me = null; localStorage.removeItem("pga:me"); tab = "event"; render(); }
 
 function renderLogin() {
@@ -260,7 +278,7 @@ function renderEvent() {
   const my = rsvps.find((r) => r.event_id===ev.id && r.name===me.name);
   const yes = rsvps.filter((r)=>r.event_id===ev.id && r.status==="yes"), no = rsvps.filter((r)=>r.event_id===ev.id && r.status==="no");
   const pending = members.map((m)=>m.name).filter((n)=>!rsvps.some((r)=>r.event_id===ev.id && r.name===n));
-  const groups = groupsOf(ev.id);
+  if (ge && ge.evId !== ev.id) ge = null;
   box.innerHTML = `
   <div class="card hero">
     <div class="row">
@@ -287,11 +305,7 @@ function renderEvent() {
       <div><label>퇴근 시간</label><input class="inp" type="time" id="aLeave" value="17:30"></div>
       <div style="display:flex;align-items:flex-end;gap:6px"><button class="btn p" style="flex:1" onclick="adminRsvp('yes')">참석</button><button class="btn" style="flex:1" onclick="adminRsvp('no')">불참</button></div>
     </div></div>` : ""}
-  <div class="sec-h"><h3>조 편성</h3><small>퇴근 시간이 가까운 순으로 ${GROUP_SIZE}명씩 자동 편성</small></div>
-  ${groups.length ? `<div class="groups">${groups.map((g,i)=>`<div class="group"><div class="h"><span>${i+1}조</span><span>${esc(g[0].leave_time)} ~ ${esc(g[g.length-1].leave_time)} 퇴근</span></div><ul>
-    ${g.map((r)=>`<li><span>${esc(r.name)}</span><span style="opacity:.7">${esc(r.leave_time)} 퇴근</span></li>`).join("")}
-    ${Array.from({length:GROUP_SIZE-g.length}).map(()=>`<li class="empty">빈 자리</li>`).join("")}</ul></div>`).join("")}</div>`
-   : `<div class="empty">아직 참석자가 없어요. 위에서 참석을 등록하면 조가 자동으로 만들어집니다.</div>`}
+  <div id="grpBox"></div>
   <div class="st">
     <div class="card"><div class="t" style="color:var(--green)">참석 ${yes.length}</div><ul>${yes.map((r)=>`<li><span>${esc(r.name)} · ${esc(r.leave_time)}</span>${isAdmin()?`<button class="x" onclick="delRsvp('${esc(r.name)}')">×</button>`:""}</li>`).join("")||'<li style="opacity:.4">없음</li>'}</ul></div>
     <div class="card"><div class="t" style="color:var(--flag)">불참 ${no.length}</div><ul>${no.map((r)=>`<li><span>${esc(r.name)}</span>${isAdmin()?`<button class="x" onclick="delRsvp('${esc(r.name)}')">×</button>`:""}</li>`).join("")||'<li style="opacity:.4">없음</li>'}</ul></div>
@@ -300,8 +314,132 @@ function renderEvent() {
   ${isAdmin() && pending.length ? `<div class="btns"><button class="btn" onclick="copyRemind()">미회신자 리마인드 문구 복사</button></div>` : ""}
   ${drawFor(ev.id) ? `<div class="result"><b>🎁 상품 추첨 결과</b><ul>${drawFor(ev.id).results.map((w,i)=>`<li><span style="font-size:20px">${medal(i)}</span><span style="flex:1"><b>${esc(w.name)}</b></span><span style="opacity:.7">${esc(w.prize)}</span></li>`).join("")}</ul></div>` : ""}`;
   window._status = my?.status || "yes";
+  renderGroups();
   if (NAVER_MAP_CLIENT_ID && ev.lat) drawMap(ev.lat, ev.lng, false, ev.place);
 }
+
+/* ---------- 조 편성 (자동 / 관리자 수동 · 드래그앤드랍) ---------- */
+const leaveOf = (evId, n) => rsvps.find((r) => r.event_id===evId && r.name===n)?.leave_time || "";
+const yesNames = (evId) => rsvps.filter((r) => r.event_id===evId && r.status==="yes").sort((a,b)=>(a.leave_time||"").localeCompare(b.leave_time||"")).map((r) => r.name);
+const autoGroups = (evId) => groupsOf(evId).map((g) => g.map((r) => r.name));
+// 실제로 보여줄 조: 저장된 수동 편성이 있으면 그것(불참·취소자 제외, 새 참석자는 '미배정'), 없으면 자동
+function effGroups(evId) {
+  const lay = layouts.find((l) => l.event_id===evId);
+  if (!lay || !Array.isArray(lay.groups) || !lay.groups.length) return { manual:false, groups:autoGroups(evId), un:[] };
+  const yes = new Set(yesNames(evId)), used = new Set();
+  const groups = lay.groups.map((g) => (g||[]).filter((n) => yes.has(n) && !used.has(n) && used.add(n)));
+  return { manual:true, groups, un:[...yes].filter((n) => !used.has(n)) };
+}
+const timeRange = (evId, g) => { const t = g.map((n) => leaveOf(evId, n)).filter(Boolean).sort(); return t.length ? (t[0]===t[t.length-1] ? `${t[0]} 퇴근` : `${t[0]} ~ ${t[t.length-1]} 퇴근`) : ""; };
+
+function renderGroups() {
+  const box = $("grpBox"); if (!box) return;
+  const ev = events.find((e) => e.id===selectedId); if (!ev) return;
+  if (ge) return renderGroupEditor(ev);
+  const { manual, groups, un } = effGroups(ev.id);
+  const tag = manual ? `<span class="gtag man">관리자 편성</span>` : `<span class="gtag">퇴근시간순 ${GROUP_SIZE}명씩 자동</span>`;
+  const editBtn = isAdmin() && yesNames(ev.id).length ? `<button class="btn" style="padding:6px 12px" onclick="startEditGroups()">✋ 조 편집</button>` : "";
+  const card = (g, i) => `<div class="group"><div class="h"><span>${i+1}조</span><span>${esc(timeRange(ev.id, g))}</span></div><ul>
+    ${g.map((n)=>`<li><span>${esc(n)}</span><span style="opacity:.7">${esc(leaveOf(ev.id, n))} 퇴근</span></li>`).join("")}
+    ${Array.from({length:Math.max(0, GROUP_SIZE-g.length)}).map(()=>`<li class="empty">빈 자리</li>`).join("")}</ul></div>`;
+  box.innerHTML = `<div class="sec-h"><h3>조 편성 ${tag}</h3>${editBtn}</div>
+  ${groups.length || un.length ? `<div class="groups">${groups.map(card).join("")}
+    ${un.length ? `<div class="group unas"><div class="h"><span>미배정 ${un.length}</span><span>조 편성 후 새로 참석 등록</span></div><ul>${un.map((n)=>`<li><span>${esc(n)}</span><span style="opacity:.7">${esc(leaveOf(ev.id, n))} 퇴근</span></li>`).join("")}</ul></div>` : ""}</div>`
+   : `<div class="empty">아직 참석자가 없어요. 위에서 참석을 등록하면 조가 자동으로 만들어집니다.</div>`}`;
+}
+
+function renderGroupEditor(ev) {
+  const chip = (n) => `<li class="dchip" data-n="${esc(n)}"><span>${esc(n)}</span><span style="opacity:.6;font-size:13px">${esc(leaveOf(ev.id, n))}</span></li>`;
+  const zone = (key, list) => `<ul class="dz" data-g="${key}">${list.map(chip).join("") || `<li class="hint">여기로 끌어다 놓기</li>`}</ul>`;
+  $("grpBox").innerHTML = `<div class="sec-h"><h3>조 편성 <span class="gtag man">편집 중</span></h3><small>${ge.groups.length}개 조</small></div>
+  <p class="sub">이름을 손가락(또는 마우스)으로 끌어서 다른 조에 놓으세요. 다른 이름 위에 놓으면 그 앞에 들어갑니다.</p>
+  <div class="groups">
+    ${ge.groups.map((g,i)=>`<div class="group"><div class="h"><span>${i+1}조 · ${g.length}명</span><span>${esc(timeRange(ev.id, g))}${g.length?"":`<button class="gx" onclick="removeGroup(${i})" title="조 삭제">×</button>`}</span></div>${zone(i, g)}</div>`).join("")}
+    <div class="group unas"><div class="h"><span>미배정 ${ge.un.length}</span><span>조에서 빼려면 여기로</span></div>${zone("un", ge.un)}</div>
+  </div>
+  <div class="editbar">
+    <button class="btn" onclick="addGroup()">+ 조 추가</button>
+    <button class="btn" onclick="autoFillGroups()">자동 편성으로 채우기</button>
+    <span style="flex:1"></span>
+    <button class="btn" onclick="ge=null;renderGroups()">취소</button>
+    <button class="btn p" onclick="saveGroups()">저장</button>
+  </div>
+  ${layouts.some((l)=>l.event_id===ev.id && l.groups?.length) ? `<div style="text-align:right;margin-top:6px"><button class="btn" style="font-size:12px;padding:5px 10px;opacity:.7" onclick="resetGroupsToAuto()">수동 편성 해제 (자동으로 되돌리기)</button></div>` : ""}`;
+}
+function startEditGroups() {
+  const { groups, un } = effGroups(selectedId);
+  ge = { evId:selectedId, groups:groups.map((g)=>[...g]), un:[...un] };
+  if (!ge.groups.length) ge.groups.push([]);
+  renderGroups();
+}
+function addGroup() { ge.groups.push([]); renderGroups(); }
+function removeGroup(i) { if (ge.groups[i]?.length) return; ge.groups.splice(i,1); if (!ge.groups.length) ge.groups.push([]); renderGroups(); }
+function autoFillGroups() { ge.groups = autoGroups(ge.evId); ge.un = []; if (!ge.groups.length) ge.groups.push([]); renderGroups(); }
+async function saveGroups() {
+  if (ge.un.length && !confirm(`미배정 ${ge.un.length}명(${ge.un.join(", ")})이 있어요. 이대로 저장할까요?`)) return;
+  const groups = ge.groups.filter((g) => g.length);
+  try { await rpc("admin_save_groups", { ...auth(), p_event_id: ge.evId, p_groups: groups }); ge = null; toast("조 편성을 저장했어요"); await loadAll(); render(); } catch (e) { toast(e.message); }
+}
+async function resetGroupsToAuto() {
+  if (!confirm("수동 편성을 지우고 퇴근시간순 자동 편성으로 되돌릴까요?")) return;
+  try { await rpc("admin_save_groups", { ...auth(), p_event_id: ge.evId, p_groups: [] }); ge = null; toast("자동 편성으로 되돌렸어요"); await loadAll(); render(); } catch (e) { toast(e.message); }
+}
+function moveName(name, toKey, beforeName) {
+  if (beforeName === name) return;
+  ge.groups = ge.groups.map((g) => g.filter((n) => n !== name)); ge.un = ge.un.filter((n) => n !== name);
+  const list = toKey === "un" ? ge.un : ge.groups[+toKey];
+  const at = beforeName ? list.indexOf(beforeName) : -1;
+  at >= 0 ? list.splice(at, 0, name) : list.push(name);
+}
+
+// 마우스·터치 공통 드래그 (Pointer Events — 외부 라이브러리 없음)
+let drag = null, autoScroll = null;
+function dzAt(x, y) {
+  const el = document.elementFromPoint(x, y); if (!el) return {};
+  return { zone: el.closest(".dz"), chip: el.closest(".dchip") };
+}
+function clearMarks() { document.querySelectorAll(".dz.over").forEach((z)=>z.classList.remove("over")); document.querySelectorAll(".dchip.before").forEach((c)=>c.classList.remove("before")); }
+document.addEventListener("pointerdown", (e) => {
+  const c = e.target.closest(".dchip"); if (!c || !ge || (e.button && e.button !== 0)) return;
+  e.preventDefault();
+  try { c.releasePointerCapture?.(e.pointerId); } catch {}
+  drag = { name:c.dataset.n, src:c, id:e.pointerId, x0:e.clientX, y0:e.clientY, ghost:null, offX:0, offY:0 };
+});
+document.addEventListener("pointermove", (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (!drag.ghost) {
+    if (Math.hypot(e.clientX-drag.x0, e.clientY-drag.y0) < 5) return;
+    const r = drag.src.getBoundingClientRect();
+    drag.ghost = drag.src.cloneNode(true); drag.ghost.classList.add("ghost-chip"); drag.ghost.style.width = r.width + "px";
+    drag.offX = drag.x0 - r.left; drag.offY = drag.y0 - r.top;
+    document.body.appendChild(drag.ghost); drag.src.classList.add("dragging");
+    if (navigator.vibrate) try { navigator.vibrate(15); } catch {}
+  }
+  e.preventDefault();
+  drag.ghost.style.left = (e.clientX - drag.offX) + "px"; drag.ghost.style.top = (e.clientY - drag.offY) + "px";
+  clearMarks();
+  const { zone, chip } = dzAt(e.clientX, e.clientY);
+  if (zone) zone.classList.add("over");
+  if (chip && chip !== drag.src) chip.classList.add("before");
+  // 화면 위/아래 가장자리에서 자동 스크롤
+  const edge = 70, h = window.innerHeight; clearInterval(autoScroll); autoScroll = null;
+  if (e.clientY < edge) autoScroll = setInterval(() => window.scrollBy(0, -12), 16);
+  else if (e.clientY > h - edge) autoScroll = setInterval(() => window.scrollBy(0, 12), 16);
+}, { passive:false });
+function endDrag(e, cancel) {
+  if (!drag || e.pointerId !== drag.id) return;
+  clearInterval(autoScroll); autoScroll = null;
+  const d = drag; drag = null; clearMarks();
+  if (!d.ghost) return;
+  d.ghost.remove(); d.src.classList.remove("dragging");
+  if (cancel) return;
+  const { zone, chip } = dzAt(e.clientX, e.clientY);
+  if (!zone) return;
+  moveName(d.name, zone.dataset.g, chip && chip.dataset.n !== d.name ? chip.dataset.n : null);
+  renderGroups();
+}
+document.addEventListener("pointerup", (e) => endDrag(e, false));
+document.addEventListener("pointercancel", (e) => endDrag(e, true));
 function setStatus(s) { window._status = s; $("rLeave").disabled = s==="no"; document.querySelectorAll(".toggle button").forEach((b)=>b.classList.toggle("on", b.classList.contains(s))); }
 async function submitRsvp() {
   try { await rpc("upsert_rsvp", { ...auth(), p_event_id: selectedId, p_status: window._status, p_leave: window._status==="yes" ? $("rLeave").value : null });
@@ -323,7 +461,7 @@ function copyRemind() { const ev = events.find((e)=>e.id===selectedId); const p 
 
 function renderHistory() {
   $("s-history").innerHTML = events.length ? `<ul class="hist" style="padding:0;margin:0">${events.map((e)=>{ const c = rsvps.filter((r)=>r.event_id===e.id && r.status==="yes").length;
-    return `<li><a onclick="selectedId=${e.id};go('event')"><b>${fmtDate(e.event_date)}</b><small>${esc(e.place)} · 참석 ${c}명 · ${Math.ceil(c/GROUP_SIZE)}개 조</small></a>${isAdmin()?`<button class="btn" onclick="delEvent(${e.id})">삭제</button>`:""}</li>`; }).join("")}</ul>`
+    return `<li><a onclick="selectedId=${e.id};go('event')"><b>${fmtDate(e.event_date)}</b><small>${esc(e.place)} · 참석 ${c}명 · ${(()=>{const x=effGroups(e.id);return x.groups.filter(g=>g.length).length;})()}개 조</small></a>${isAdmin()?`<button class="btn" onclick="delEvent(${e.id})">삭제</button>`:""}</li>`; }).join("")}</ul>`
     : `<div class="empty">아직 만든 모임이 없어요.</div>`;
 }
 async function delEvent(id) { if (!confirm("이 모임을 삭제할까요? 참석 기록도 함께 지워집니다.")) return; try { await rpc("admin_delete_event", { ...auth(), p_event_id: id }); await loadAll(); render(); } catch (e) { toast(e.message); } }
