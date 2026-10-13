@@ -179,6 +179,11 @@ const monthOf = (iso) => `${new Date(iso + "T00:00:00").getMonth()+1}월`;
 const isAdmin = () => !!me?.is_admin;
 
 /* ---------- 데이터 ---------- */
+// 관리자 먼저, 그다음 가나다순
+const byName = (a, b) => a.localeCompare(b, "ko");
+const sortMembers = (list) => [...list].sort((a, b) => (b.is_admin - a.is_admin) || byName(a.name, b.name));
+const memberRank = (n) => { const i = members.findIndex((m) => m.name === n); return i < 0 ? 1e9 : i; };
+const sortNames = (names) => [...names].sort((a, b) => (memberRank(a) - memberRank(b)) || byName(a, b));
 async function loadAll() {
   const [m, e, r, d, g] = await Promise.all([
     sb.from("members").select("name,position,is_admin,sort_order").order("sort_order"),
@@ -188,7 +193,7 @@ async function loadAll() {
     sb.from("group_layouts").select("*"),
   ]);
   if (m.error || e.error || r.error) { toast("불러오기 실패: " + (m.error || e.error || r.error).message); return; }
-  members = m.data; events = e.data; rsvps = r.data; draws = d.data || []; layouts = g.data || [];
+  members = sortMembers(m.data); events = e.data; rsvps = r.data; draws = d.data || []; layouts = g.data || [];
   if (!events.find((x) => x.id === selectedId)) selectedId = events[0]?.id ?? null;
 }
 async function rpc(fn, args) {
@@ -328,7 +333,7 @@ function effGroups(evId) {
   if (!lay || !Array.isArray(lay.groups) || !lay.groups.length) return { manual:false, groups:autoGroups(evId), un:[] };
   const yes = new Set(yesNames(evId)), used = new Set();
   const groups = lay.groups.map((g) => (g||[]).filter((n) => yes.has(n) && !used.has(n) && used.add(n)));
-  return { manual:true, groups, un:[...yes].filter((n) => !used.has(n)) };
+  return { manual:true, groups, un:sortNames([...yes].filter((n) => !used.has(n))) };
 }
 const timeRange = (evId, g) => { const t = g.map((n) => leaveOf(evId, n)).filter(Boolean).sort(); return t.length ? (t[0]===t[t.length-1] ? `${t[0]} 퇴근` : `${t[0]} ~ ${t[t.length-1]} 퇴근`) : ""; };
 
@@ -390,6 +395,7 @@ function moveName(name, toKey, beforeName) {
   const list = toKey === "un" ? ge.un : ge.groups[+toKey];
   const at = beforeName ? list.indexOf(beforeName) : -1;
   at >= 0 ? list.splice(at, 0, name) : list.push(name);
+  if (toKey === "un" && !beforeName) ge.un = sortNames(ge.un);
 }
 
 // 마우스·터치 공통 드래그 (Pointer Events — 외부 라이브러리 없음)
