@@ -623,7 +623,17 @@ function confettiBurst() {
 const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const fmtStamp = (ts) => { const d = new Date(ts); const p = (n) => String(n).padStart(2,"0"); return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 const entriesOf = (id) => fentries.filter((x) => x.event_id===id).sort((a,b) => a.created_at.localeCompare(b.created_at));
-const fieldOpen = (f) => !f.closed && (!f.deadline || new Date(f.deadline) > new Date());
+// 신청 상태: before(시작 전) / open(접수 중) / closed(마감)
+const fieldState = (f) => f.closed || (f.deadline && new Date(f.deadline) <= new Date()) ? "closed" : (f.open_at && new Date(f.open_at) > new Date() ? "before" : "open");
+const fieldOpen = (f) => fieldState(f) === "open";
+const untilText = (ts) => { let s = Math.max(0, Math.floor((new Date(ts) - Date.now()) / 1000)); const d = Math.floor(s/86400); s %= 86400; const h = Math.floor(s/3600); s %= 3600; const m = Math.floor(s/60); s %= 60;
+  return d ? `${d}일 ${h}시간 ${m}분 남음` : h ? `${h}시간 ${m}분 ${s}초 남음` : `${m}분 ${s}초 남음`; };
+// 신청 시작 카운트다운: 1초마다 갱신, 시작 시각이 되면 화면을 다시 그려 버튼을 엶
+setInterval(() => {
+  let opened = false;
+  document.querySelectorAll(".cd[data-at]").forEach((el) => { if (new Date(el.dataset.at) <= new Date()) opened = true; else el.textContent = untilText(el.dataset.at); });
+  if (opened && tab === "field" && !fCreating) renderField();
+}, 1000);
 function renderField() {
   const box = $("s-field");
   if (fCreating && isAdmin()) {
@@ -638,6 +648,7 @@ function renderField() {
       <div><label>주소</label><input class="inp" id="fAddr"></div>
       <div><label>지도/예약 링크</label><input class="inp" id="fLink" placeholder="https://"></div>
       <div><label>비용</label><input class="inp" id="fFee" placeholder="예) 그린피+카트 1인 18만원"></div>
+      <div><label>선착순 신청 시작 (이 시각 전엔 신청 불가 · 비우면 바로 접수)</label><input class="inp" type="datetime-local" id="fOpen"></div>
       <div><label>신청 마감 (비우면 직접 마감할 때까지)</label><input class="inp" type="datetime-local" id="fDeadline"></div>
       <div><label>메모</label><input class="inp" id="fNote" placeholder="카풀, 준비물 등"></div>
     </div>
@@ -655,7 +666,7 @@ function renderField() {
 }
 function fieldCard(f) {
   const list = entriesOf(f.id), cap = f.capacity, conf = list.slice(0, cap), wait = list.slice(cap);
-  const myIdx = list.findIndex((x) => x.name === me.name), open = fieldOpen(f);
+  const myIdx = list.findIndex((x) => x.name === me.name), st = fieldState(f), open = st === "open";
   const myState = myIdx < 0 ? "" : myIdx < cap ? `<span class="mine" style="color:#A7F3D0">✅ 확정 (${myIdx+1}번째 신청)</span>` : `<span class="mine" style="color:#FCD34D">⏳ 대기 ${myIdx-cap+1}번</span>`;
   const left = Math.max(0, cap - list.length);
   const notJoined = members.map((m) => m.name).filter((n) => !list.some((x) => x.name === n));
@@ -666,11 +677,13 @@ function fieldCard(f) {
         ${f.fee ? `<br>💰 ${esc(f.fee)}` : ""}${f.note ? `<br>📝 ${esc(f.note)}` : ""}</div></div>
       <div class="big">${conf.length}<small>/ ${cap}명</small></div>
     </div>
-    <div style="font-size:13px;margin-top:10px;opacity:.85">${open ? (left ? `🟢 신청 중 · 남은 자리 ${left}` : `🟡 정원 마감 · 대기 신청 가능`) : "🔴 신청 마감"}${f.deadline ? ` · 마감 ${fmtStamp(f.deadline).slice(0,-3)}` : ""}${wait.length ? ` · 대기 ${wait.length}명` : ""}</div>
+    <div style="font-size:13px;margin-top:10px;opacity:.85">${st === "before" ? `⏰ ${fmtStamp(f.open_at).slice(0,-3)} 선착순 신청 시작 · <b class="cd" data-at="${esc(f.open_at)}">${untilText(f.open_at)}</b>`
+      : open ? (left ? `🟢 신청 중 · 남은 자리 ${left}` : `🟡 정원 마감 · 대기 신청 가능`) : "🔴 신청 마감"}${f.deadline ? ` · 마감 ${fmtStamp(f.deadline).slice(0,-3)}` : ""}${wait.length ? ` · 대기 ${wait.length}명` : ""}</div>
     <div class="btns" style="align-items:center">
-      ${myIdx < 0 ? (open ? `<button class="btn" style="background:#fff;color:var(--green-deep);font-weight:700" onclick="fieldApply(${f.id})">${left ? "선착순 신청하기" : "대기 신청하기"}</button>` : "")
+      ${myIdx < 0 ? (open ? `<button class="btn" style="background:#fff;color:var(--green-deep);font-weight:700" onclick="fieldApply(${f.id})">${left ? "선착순 신청하기" : "대기 신청하기"}</button>`
+                     : st === "before" ? `<button class="btn" disabled style="background:rgba(255,255,255,.25);color:#fff;border-color:transparent;cursor:not-allowed">⏰ 신청 시작 전</button>` : "")
                   : `${myState}<button class="btn l" onclick="fieldCancel(${f.id})">신청 취소</button>`}
-      ${isAdmin() ? `<span style="flex:1"></span><button class="btn l" onclick="copyFieldAnn(${f.id})">안내 문구 복사</button><button class="btn l" onclick="closeField(${f.id},${!f.closed})">${f.closed ? "마감 해제" : "지금 마감"}</button><button class="btn l" onclick="delField(${f.id})">삭제</button>` : ""}
+      ${isAdmin() ? `<span style="flex:1"></span><button class="btn l" onclick="copyFieldAnn(${f.id})">안내 문구 복사</button><button class="btn l" onclick="setFieldOpen(${f.id})">시작 시각 변경</button><button class="btn l" onclick="closeField(${f.id},${!f.closed})">${f.closed ? "마감 해제" : "지금 마감"}</button><button class="btn l" onclick="delField(${f.id})">삭제</button>` : ""}
     </div>
   </div>
   <div class="card" style="margin-top:-6px">
@@ -686,8 +699,9 @@ async function createField() {
   const v = (id) => $(id).value.trim();
   if (!v("fDate")) return toast("날짜를 입력해 주세요");
   const cap = parseInt(v("fCap"), 10); if (!(cap > 0)) return toast("정원을 1명 이상으로 입력해 주세요");
+  if (v("fOpen") && v("fDeadline") && new Date(v("fDeadline")) <= new Date(v("fOpen"))) return toast("신청 마감은 신청 시작보다 뒤여야 해요");
   try { await rpc("admin_create_field", { ...auth(), p_title: v("fTitle"), p_date: v("fDate"), p_tee: v("fTee") || null, p_course: v("fCourse") || null, p_address: v("fAddr") || null,
-      p_link: v("fLink") || null, p_capacity: cap, p_fee: v("fFee") || null, p_note: v("fNote") || null, p_deadline: v("fDeadline") ? new Date(v("fDeadline")).toISOString() : null });
+      p_link: v("fLink") || null, p_capacity: cap, p_fee: v("fFee") || null, p_note: v("fNote") || null, p_deadline: v("fDeadline") ? new Date(v("fDeadline")).toISOString() : null, ...(v("fOpen") ? { p_open_at: new Date(v("fOpen")).toISOString() } : {}) });
     fCreating = false; toast("필드 모임을 만들었어요"); await loadAll(); render(); } catch (e) { toast(e.message); }
 }
 async function fieldDo(fn, args, msg) { try { await rpc(fn, { ...auth(), ...args }); if (msg) toast(msg); } catch (e) { toast(e.message); } await loadAll(); render(); }
@@ -696,6 +710,14 @@ function fieldCancel(id) { if (confirm("신청을 취소할까요? 다시 신청
 function fieldRemove(id, n) { if (confirm(`${n}님을 신청 명단에서 뺄까요?`)) fieldDo("admin_field_remove", { p_id: id, p_target: n }, `${n} 제외`); }
 function fieldAdd(id) { const n = $("fAdd-"+id).value; if (!n) return toast("회원을 선택해 주세요"); fieldDo("admin_field_add", { p_id: id, p_target: n }, `${n} 추가`); }
 function closeField(id, closed) { fieldDo("admin_close_field", { p_id: id, p_closed: closed }, closed ? "신청을 마감했어요" : "다시 신청을 받아요"); }
+function setFieldOpen(id) {
+  const f = fields.find((x) => x.id===id), cur = f.open_at ? new Date(f.open_at) : null, p = (n) => String(n).padStart(2,"0");
+  const def = cur ? `${cur.getFullYear()}-${p(cur.getMonth()+1)}-${p(cur.getDate())} ${p(cur.getHours())}:${p(cur.getMinutes())}` : "";
+  const v = prompt("선착순 신청 시작 시각 (예: 2026-10-20 09:00)\n비워두면 바로 접수합니다.", def); if (v === null) return;
+  let at = null;
+  if (v.trim()) { const d = new Date(v.trim().replace(" ", "T")); if (isNaN(d)) return toast("시각 형식을 확인해 주세요 (예: 2026-10-20 09:00)"); at = d.toISOString(); }
+  fieldDo("admin_set_field_open", { p_id: id, p_open_at: at }, at ? `신청 시작: ${fmtStamp(at).slice(0,-3)}` : "바로 접수로 바꿨어요");
+}
 async function delField(id) { if (!confirm("이 필드 모임을 삭제할까요? 신청 명단도 함께 지워집니다.")) return; fieldDo("admin_delete_field", { p_id: id }, "삭제했어요"); }
 function copyFieldAnn(id) {
   const f = fields.find((x) => x.id===id);
@@ -704,7 +726,7 @@ function copyFieldAnn(id) {
 ${f.title} 신청을 받습니다. (선착순 ${f.capacity}명)
 
 일시 : ${fmtDate(f.event_date)}${f.tee_time ? ` ${f.tee_time} 티오프` : ""}
-장소 : ${f.course || ""}${f.address ? ` (${f.address})` : ""}${f.fee ? `\n비용 : ${f.fee}` : ""}${f.deadline ? `\n신청 마감 : ${fmtStamp(f.deadline).slice(0,-3)}` : ""}${f.note ? `\n참고 : ${f.note}` : ""}
+장소 : ${f.course || ""}${f.address ? ` (${f.address})` : ""}${f.fee ? `\n비용 : ${f.fee}` : ""}${f.open_at ? `\n신청 시작 : ${fmtStamp(f.open_at).slice(0,-3)} (이 시각부터 선착순 접수)` : ""}${f.deadline ? `\n신청 마감 : ${fmtStamp(f.deadline).slice(0,-3)}` : ""}${f.note ? `\n참고 : ${f.note}` : ""}
 
 아래 동호회 페이지 → [필드 모임] 탭에서 신청해 주세요. 신청 순서대로 확정되고, 정원 이후는 대기 순번이 붙습니다.
 ▶ ${SITE_URL}${f.link ? `\n\n${f.link}` : ""}
